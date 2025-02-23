@@ -1,0 +1,111 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+
+    --primary: 271 100% 70%;
+    --primary-foreground: 0 0% 98%;
+
+    --secondary: 330 100% 80%;
+    --secondary-foreground: 240 5.9% 10%;
+
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+
+    --accent: 240 100% 70%;
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 240 5.9% 10%;
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 240 30% 10%;
+    --foreground: 0 0% 98%;
+
+    --card: 240 30% 12%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 240 30% 12%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 271 100% 70%;
+    --primary-foreground: 0 0% 98%;
+
+    --secondary: 330 100% 80%;
+    --secondary-foreground: 240 5.9% 10%;
+
+    --muted: 240 30% 20%;
+    --muted-foreground: 240 5% 64.9%;
+
+    --accent: 240 100% 70%;
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 240 30% 20%;
+    --input: 240 30% 20%;
+    --ring: 240 4.9% 83.9%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .prose {
+    max-width: none;
+  }
+
+  .prose img {
+    margin: 2rem auto;
+    border-radius: 0.5rem;
+  }
+
+  .prose h1,
+  .prose h2,
+  .prose h3,
+  .prose h4 {
+    color: hsl(var(--foreground));
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+  }
+
+  .prose p {
+    margin-top: 1.25rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .prose a {
+    color: hsl(var(--primary));
+    text-decoration: underline;
+  }
+
+  .dark .prose {
+    color: hsl(var(--foreground));
+  }
+}
+
