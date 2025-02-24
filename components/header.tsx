@@ -7,17 +7,19 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { MoonIcon, SunIcon, User, Settings, LogOut } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Loader2 } from "lucide-react"
+import { useRouter } from "next/navigation"
 
 export function Header() {
-  const { user, isAuthenticated, isLoading, login, logout } = useAuth()
+  const { user, isAuthenticated, isLoading, logout } = useAuth()
   const { theme, setTheme } = useTheme()
+  const router = useRouter()
 
   return (
     <header className="sticky top-0 z-50 w-full bg-[#0A0A1E] text-white">
       <div className="container flex h-16 items-center justify-between px-4">
         <div className="flex items-center space-x-4">
           <Image
-            src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/26369f67-f2dc-4ce1-9311-3f37d74afe75-KP2pW9t3ogWLszAxdHhOfXZaCjBaUh.png"
+            src="/logo.png"
             alt="SkyTok Logo"
             width={120}
             height={40}
@@ -69,7 +71,7 @@ export function Header() {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <Button onClick={login} className="bg-[#9966FF] hover:bg-[#8A5CE6] text-white">
+            <Button onClick={() => router.push("/login")} className="bg-[#9966FF] hover:bg-[#8A5CE6] text-white">
               Login with AT Protocol
             </Button>
           )}
@@ -78,4 +80,3 @@ export function Header() {
     </header>
   )
 }
-

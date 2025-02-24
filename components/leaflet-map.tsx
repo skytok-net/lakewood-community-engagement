@@ -3,12 +3,8 @@
 import { useEffect } from "react"
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet"
 import { Button } from "@/components/ui/button"
-import type { LatLngExpression } from "leaflet"
-
-// Import Leaflet CSS
-if (typeof window !== "undefined") {
-  require("leaflet/dist/leaflet.css")
-}
+import type { LatLngExpression, Icon } from "leaflet"
+import "leaflet/dist/leaflet.css"
 
 interface Property {
   id: string
@@ -21,7 +17,7 @@ interface Property {
 
 interface LeafletMapProps {
   properties: Property[]
-  createMarkerIcon: (reply: boolean | null) => any
+  createMarkerIcon: (reply: boolean | null) => Icon
 }
 
 const MAP_CONFIG = {
@@ -49,7 +45,12 @@ function ResetViewControl() {
   return (
     <div className="leaflet-bottom leaflet-left">
       <div className="leaflet-control leaflet-bar">
-        <Button onClick={resetView} className="px-2 py-1 text-xs" variant="secondary">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={resetView}
+          className="bg-background hover:bg-accent"
+        >
           Reset View
         </Button>
       </div>
@@ -57,22 +58,23 @@ function ResetViewControl() {
   )
 }
 
-export default function LeafletMap({ properties, createMarkerIcon }: LeafletMapProps) {
+function LeafletMap({ properties, createMarkerIcon }: LeafletMapProps) {
   return (
     <MapContainer
       center={MAP_CONFIG.center}
       zoom={MAP_CONFIG.zoom}
-      style={{ height: "100%", width: "100%" }}
-      scrollWheelZoom={true}
+      className="w-full h-[600px] rounded-lg"
     >
       <MapController />
       <ResetViewControl />
       <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
-      {properties.map((property) =>
-        property.latitude && property.longitude ? (
+      {properties.map((property) => {
+        if (!property.latitude || !property.longitude) return null
+        
+        return (
           <Marker
             key={property.id}
             position={[property.latitude, property.longitude]}
@@ -81,15 +83,14 @@ export default function LeafletMap({ properties, createMarkerIcon }: LeafletMapP
             <Popup>
               <div className="p-2">
                 <h3 className="font-semibold">{property.address}</h3>
-                <p className="text-sm">Owner: {property.owner}</p>
-                <p className="text-sm">
-                  Status: {property.reply === true ? "Support" : property.reply === false ? "Oppose" : "No Response"}
-                </p>
+                <p className="text-sm text-muted-foreground">{property.owner}</p>
               </div>
             </Popup>
           </Marker>
-        ) : null
-      )}
+        )
+      })}
     </MapContainer>
   )
 }
+
+export default LeafletMap

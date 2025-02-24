@@ -2,7 +2,6 @@
 
 import { create } from "zustand"
 import { persist, createJSONStorage } from "zustand/middleware"
-import type { StoreApi } from "zustand"
 import { AtpAgent, type AtpSessionData, type AtpSessionEvent } from "@atproto/api"
 import type { AuthState, User } from "@/types"
 import type { ProfileViewDetailed } from "@atproto/api/dist/client/types/app/bsky/actor/defs"
@@ -21,29 +20,35 @@ interface AuthStore extends AuthState {
   session: AtpSessionData | null
   resumeSession: () => Promise<AtpSessionData | null>
   validateSession: () => Promise<boolean>
+  clearError: () => void
 }
 
-let globalAgent: AtpAgent | null = null
+const createAgent = (service: string, set: (state: Partial<AuthStore>) => void) => {
+  return new AtpAgent({
+    service,
+    persistSession: (event: AtpSessionEvent, session: AtpSessionData | undefined) => {
+      if (typeof window === "undefined") return
+      if (event === "create" || event === "update") {
+        set({ session, isAuthenticated: true })
+        localStorage.setItem("authState", JSON.stringify({ session }))
+      } else {
+        set({ session: null, agent: null, user: null, isAuthenticated: false })
+        localStorage.removeItem("authState")
+      }
+    },
+  })
+}
 
-const getAgent = (service: string, set: (state: Partial<AuthStore>) => void, get: StoreApi<AuthStore>["getState"]) => {
-  if (!globalAgent) {
-    globalAgent = new AtpAgent({
-      service,
-      persistSession: (event: AtpSessionEvent, session: AtpSessionData | undefined) => {
-        if (typeof window === "undefined") return
-        if (event === "create" || event === "update") {
-          set({ session, isAuthenticated: true })
-          localStorage.setItem("authState", JSON.stringify({ session }))
-        } else {
-          set({ session: null, agent: null, user: null, isAuthenticated: false })
-          localStorage.removeItem("authState")
-          globalAgent = null
-        }
-      },
-    })
+const storage = createJSONStorage(() => {
+  if (typeof window === "undefined") {
+    return {
+      getItem: () => Promise.resolve(null),
+      setItem: () => Promise.resolve(),
+      removeItem: () => Promise.resolve()
+    }
   }
-  return globalAgent
-}
+  return localStorage
+})
 
 export const useAuthStore = create<AuthStore>()(
   persist(
@@ -58,6 +63,8 @@ export const useAuthStore = create<AuthStore>()(
 
       setUser: (user) => set({ user, isAuthenticated: !!user }),
 
+      clearError: () => set({ error: null }),
+
       resumeSession: async () => {
         try {
           if (typeof window === "undefined") return null
@@ -71,23 +78,34 @@ export const useAuthStore = create<AuthStore>()(
             return null
           }
 
-          set({ session, isAuthenticated: true })
+          set({ session, isAuthenticated: true, isLoading: true })
           
-          // Validate the session is still valid
-          const agent = getAgent(session.service || "https://bsky.social", set, get)
+          const agent = createAgent(session.service || "https://bsky.social", set)
           try {
             await agent.resumeSession(session)
-            set({ agent })
+            set({ agent, isLoading: false })
             return session
           } catch (error) {
             console.error("Session validation failed:", error)
-            set({ session: null, isAuthenticated: false, agent: null })
+            set({ 
+              session: null, 
+              isAuthenticated: false, 
+              agent: null, 
+              error: error as Error,
+              isLoading: false 
+            })
             localStorage.removeItem("authState")
             return null
           }
         } catch (error) {
           console.error("Error resuming session:", error)
-          set({ session: null, isAuthenticated: false, agent: null })
+          set({ 
+            session: null, 
+            isAuthenticated: false, 
+            agent: null, 
+            error: error as Error,
+            isLoading: false 
+          })
           localStorage.removeItem("authState")
           return null
         }
@@ -98,151 +116,211 @@ export const useAuthStore = create<AuthStore>()(
         if (!state.session || !state.agent) return false
         
         try {
+          set({ isLoading: true, error: null })
           await state.agent.resumeSession(state.session)
+          set({ isLoading: false })
           return true
         } catch (error) {
           console.error("Session validation failed:", error)
-          set({ session: null, isAuthenticated: false, agent: null })
-          localStorage.removeItem("authState")
+          set({ 
+            session: null, 
+            isAuthenticated: false, 
+            agent: null, 
+            error: error as Error,
+            isLoading: false,
+            profile: null,
+            user: null
+          })
           return false
         }
       },
 
-      login: async (identifier: string, email: string, password: string, service: string): Promise<User | Error> => {
+      login: async (identifier: string, email: string, password: string, service: string) : Promise<User | Error> =>  {
         try {
-          set({ isLoading: true })
-          const agent = getAgent(service, set, get)
+          set({ isLoading: true, error: null })
+          
+          const agent = createAgent(service, set)
+          const res = await agent.login({ identifier, password })
 
-          const loginResponse = await agent.login({ identifier, password })
+          if (!res.success || !res.data) throw new Error("Login failed")
 
-          if (!loginResponse.success || !loginResponse.data?.did) {
-            throw new Error("Failed to login")
-          }
+          const profileRes = await agent.getProfile()
 
-          const response = await agent.getProfile()
-          if (!response.data || !response.success) {
-            throw new Error("Failed to get profile")
-          }
+          if (!profileRes.success || !profileRes.data) throw new Error("Failed to get profile")
 
-          const { data: userData, error: userError } = await supabase
-            .schema('dallas')
-            .from('users')
-            .select('*')
-            .eq('did', response.data.did)
+          //set({ agent })
+          
+          const { data: existingUser, error: fetchError } = await supabase
+          .schema('dallas') 
+            .from("users")
+            .select()
+            .eq("email", email)
             .single()
-
-          if (userError) {
-            console.error("Error fetching user:", userError)
-            throw userError
+          
+          if (fetchError && fetchError.code !== "PGRST116") {
+            throw fetchError
           }
-
-          const id = userData?.id || randomUUID()
-
-          const newUser: UserInsert = {
-            id,
-            did: response.data.did,
-            handle: response.data.handle,
-            email,
-            display_name: response.data.displayName || 'anonymous',
-            avatar: response.data.avatar || null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }
-
-          if (!userData) {
-            const { error: insertError } = await supabase
-              .schema('dallas')
-              .from('users')
-              .insert([newUser])
-
-            if (insertError) {
-              console.error("Error creating user:", insertError)
-              throw insertError
+          
+          if (!existingUser) {
+            const newUser: UserInsert = {
+              id: randomUUID(),
+              did: res.data.did,
+              service,
+              avatar: profileRes.data.avatar,
+              display_name: profileRes.data.displayName || identifier,
+              email,
+              handle: identifier,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
             }
+            
+            const { data: u, error: insertError } = await supabase
+              .schema('dallas') 
+              .from("users")
+              .insert(newUser)
+              .select()
+              .single()
+              
+            if (insertError) throw insertError
+
+            const userReturned = {
+              ...newUser,
+              id: u?.id,
+            } as User
+            
+            set({ 
+              user: userReturned, 
+              isAuthenticated: true, 
+              isLoading: false, 
+              agent, 
+              session: agent.session, 
+              error: null, 
+              profile: profileRes.data
+            })
+            return userReturned
           }
 
-          const user: User = {
-            id,
-            did: response.data.did,
-            handle: response.data.handle,
-            email,
-            displayName: response.data.displayName || 'anonymous',
-            avatar: response.data.avatar,
-            profile: response.data
-          }
+          const userReturned = {
+            ...existingUser,
+            id: existingUser.id,
+          } as User
 
           set({ 
-            user,
-            agent,
-            profile: response.data,
-            isAuthenticated: true,
-            isLoading: false,
+            user: userReturned, 
+            isAuthenticated: true, 
+            isLoading: false, 
+            profile: profileRes.data,
+            agent, 
+            session: agent.session,
             error: null
           })
-
-          return user
+          return userReturned
+          
         } catch (error) {
+          console.error("Login failed:", error)
           set({ 
-            isLoading: false,
-            error: error instanceof Error ? error : new Error('Unknown error occurred')
+            error: error as Error, 
+            isLoading: false, 
+            user: null, 
+            isAuthenticated: false, 
+            agent: null ,
+            session: null,
+            profile: null
           })
-          return error instanceof Error ? error : new Error('Unknown error occurred')
+          return error as Error
         }
       },
 
-      register: async (name: string, handle: string, email: string, password: string, service: string): Promise<User | Error> => {
+      register: async (name: string, handle: string, email: string, password: string, service: string) => {
         try {
-          set({ isLoading: true })
-          const agent = getAgent(service, set, get)
-          const result = await agent.createAccount({ handle, email, password })
+          set({ isLoading: true, error: null })
           
-          if (!result.success) {
-            throw new Error("Failed to create account")
-          }
+          const agent = createAgent(service, set)
+          const res = await agent.createAccount({ handle, password, email })
 
-          return await get().login(handle, email, password, service)
+          if (!res.success) throw new Error("Failed to create account")
+          
+          const profileRes = await agent.getProfile()
+          if (!profileRes.success) throw new Error("Failed to get profile")
+          
+          const newUser: UserInsert = {
+            id: randomUUID(),
+              did: res.data.did,
+              service,
+              avatar: profileRes.data.avatar,
+              display_name: profileRes.data.displayName || handle,
+              email,
+              handle,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+          }
+          
+          const { data: user, error: insertError } = await supabase
+            .schema('dallas')
+            .from("users")
+            .insert(newUser)
+            .select()
+            .single()
+            
+          if (insertError) throw insertError
+
+          const userReturned = {
+            ...newUser,
+            id: user?.id,
+          } as User
+
+          set({ user: userReturned, agent, isAuthenticated: true, isLoading: false })
+          return userReturned
+          
         } catch (error) {
-          set({ isLoading: false, error: error instanceof Error ? error : new Error('Unknown error occurred') })
-          return error instanceof Error ? error : new Error('Unknown error occurred')
+          console.error("Registration failed:", error)
+          set({ 
+            error: error as Error, 
+            isLoading: false, 
+            user: null, 
+            isAuthenticated: false, 
+            agent: null ,
+            session: null,
+            profile: null
+          })
+          return error as Error
         }
       },
 
       logout: async () => {
         try {
-          const agent = get().agent
-          if (agent) {
-            await agent.logout()
+          set({ isLoading: true, error: null })
+          
+          const state = get()
+          if (state.agent) {
+            await state.agent.logout()
           }
-          set({ 
+          
+          localStorage.removeItem("authState")
+          
+          set({
             user: null,
             agent: null,
+            session: null,
             profile: null,
             isAuthenticated: false,
-            session: null,
-            error: null
+            isLoading: false
           })
+          
         } catch (error) {
-          console.error("Error during logout:", error)
-          set({ error: error instanceof Error ? error : new Error('Unknown error occurred') })
+          console.error("Logout failed:", error)
+          set({ error: error as Error, isLoading: false })
+          throw error
         }
       }
     }),
     {
       name: "auth-store",
-      storage: createJSONStorage(() => {
-        if (typeof window !== 'undefined') {
-          return localStorage
-        }
-        return {
-          getItem: () => null,
-          setItem: () => {},
-          removeItem: () => {}
-        }
-      }),
+      storage,
       partialize: (state) => ({
         user: state.user,
-        isAuthenticated: state.isAuthenticated,
-        session: state.session
+        session: state.session,
+        isAuthenticated: state.isAuthenticated
       })
     }
   )
