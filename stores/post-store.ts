@@ -3,8 +3,7 @@
 import { create } from 'zustand'
 import { supabase } from '@/lib/supabaseClient'
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js'
-import type { Post } from '@/types'
-import { toast } from 'sonner'
+import type { Post, PostInsert } from '@/types'
 
 // Helper function to validate Post type
 const isValidPost = (item: unknown): item is Post => {
@@ -41,6 +40,8 @@ interface PostState {
   unsubscribe: () => void
   handlePostChange: (post: Post) => void
   handlePostDelete: (id: string) => void
+  createPost: (postInsert: PostInsert) => Promise<Post | Error>
+  deletePost: (id: string) => Promise<Post | Error>
 }
 
 export const usePostStore = create<PostState>((set, get) => ({
@@ -54,6 +55,36 @@ export const usePostStore = create<PostState>((set, get) => ({
   setPost: (post) => set({ post }),
   setPosts: (posts) => set({ posts }),
   setError: (error) => set({ error }),
+  createPost: async (postInsert: PostInsert) : Promise<Post | Error> => {
+    try {
+      const { data, error } = await supabase
+      .schema('dallas')
+      .from('posts')
+      .insert(postInsert)
+      .single()
+      if (error) throw error
+      return data as Post
+    } catch (error) {
+      console.log(error)
+      return error as Error
+    }
+  },
+
+  deletePost: async (id: string) : Promise<Post | Error> => {
+    try {
+      const { data, error } = await supabase
+      .schema('dallas')
+      .from('posts')
+      .delete()
+      .eq('id', id)
+      .single()
+      if (error) throw error
+      return data as Post
+    } catch (error) {
+      console.log(error)
+      return error as Error
+    }
+  },
 
   handlePostChange: (post) => {
     const { posts } = get()
@@ -61,14 +92,14 @@ export const usePostStore = create<PostState>((set, get) => ({
       p.id === post.id ? post : p
     )
     set({ posts: updatedPosts })
-    toast.success('Post updated')
+    //toast.success('Post updated')
   },
 
   handlePostDelete: (id) => {
     const { posts } = get()
     const updatedPosts = posts.filter(p => p.id !== id)
     set({ posts: updatedPosts })
-    toast.info('Post removed')
+    //toast.info('Post removed')
   },
 
   fetchPosts: async () => {
@@ -107,7 +138,7 @@ export const usePostStore = create<PostState>((set, get) => ({
         error: err,
         isLoading: false 
       })
-      toast.error(err.message)
+      //toast.error(err.message)
     }
   },
 
@@ -136,7 +167,7 @@ export const usePostStore = create<PostState>((set, get) => ({
         error: err,
         isLoading: false 
       })
-      toast.error(err.message)
+      //toast.error(err.message)
     }
   },
 
@@ -157,7 +188,7 @@ export const usePostStore = create<PostState>((set, get) => ({
         if (payload.new && isValidPost(payload.new)) {
           const { posts } = get()
           set({ posts: [...posts, payload.new] })
-          toast.success('New post added')
+          //toast.success('New post added')
         }
       })
       .on('postgres_changes', {
@@ -182,7 +213,7 @@ export const usePostStore = create<PostState>((set, get) => ({
         console.log('Subscription status:', status, err) // Debug log
         if (err) {
           console.error('Subscription error:', err)
-          toast.error(err.message)
+          //toast.error(err.message)
           // Retry subscription after error
           setTimeout(() => get().subscribeToChanges(), 5000)
         }

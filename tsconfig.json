@@ -22,10 +22,10 @@
       }
     ],
     "paths": {
+      "@/components/*": ["./components/*"],
       "@/*": ["./*"],
       "@/lib/*": ["./lib/*"],
       "@/stores/*": ["./stores/*"],
-      "@/components/*": ["./components/*"],
       "@/hooks/*": ["./hooks/*"],
       "@/utils/*": ["./utils/*"],
       "@/types/*": ["./types/*"]

@@ -1,10 +1,10 @@
 "use client"
 
-import MapSection from "@/components/map-section"
-import { NewsFeed } from "@/components/news-feed"
-import { DiscussionFeed } from "@/components/discussion-feed"
-import { StatisticsScorecard } from "@/components/statistics-scorecard"
-import AiChat from "@/components/ai-chat"
+import MapSection from "../components/map-section"
+import { NewsFeed } from "../components/news-feed"
+import { DiscussionFeed } from "../components/discussion-feed"
+import { StatisticsScorecard } from "../components/statistics-scorecard"
+import AiChat from "../components/ai-chat"
 
 export default function Home() {
   return (

@@ -1,13 +1,15 @@
 import { useEffect } from 'react'
 import { usePostStore } from '@/stores/post-store'
 import { toast } from 'sonner'
-import type { Post } from '@/types'
+import type { Post, PostInsert } from '@/types'
 
 interface UsePostsReturn {
   posts: Post[]
   isLoading: boolean
   error: Error | null
   hasLoaded: boolean
+  createPost: (postInsert: PostInsert) => Promise<Post | Error>
+  deletePost: (id: string) => Promise<Post | Error>
 }
 
 export function usePosts(): UsePostsReturn {
@@ -35,6 +37,8 @@ export function usePosts(): UsePostsReturn {
     posts: store.posts,
     isLoading: store.isLoading,
     error: store.error,
-    hasLoaded: store.hasLoaded
+    hasLoaded: store.hasLoaded,
+    createPost: store.createPost,
+    deletePost: store.deletePost
   }
 }

@@ -1,7 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { supabase } from "@/lib/supabaseClient"
+import { useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -13,126 +12,109 @@ import { CommentsDrawer } from "./comments-drawer"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useToast } from "@/components/ui/use-toast"
+import { usePosts } from "@/hooks/use-posts"
+import type { Post } from "@/types"
+import { z } from "zod"
 
-interface Post {
-  id: string
-  content: string
-  created_at: string
-  user_id: string
-  user: {
-    id: string
-    did: string
-    handle: string
-    display_name: string
-    avatar?: string
-  } | null
-}
+const postSchema = z.object({
+  content: z.string()
+    .min(1, "Post content cannot be empty")
+    .max(2000, "Post content cannot exceed 2000 characters"),
+  title: z.string()
+    .min(1, "Title cannot be empty")
+    .max(100, "Title cannot exceed 100 characters"),
+  user_id: z.string().uuid("Invalid user ID")
+})
+
+type PostInput = z.infer<typeof postSchema>
 
 export function DiscussionFeed() {
-  const [posts, setPosts] = useState<Post[]>([])
+  const { posts, isLoading, error, createPost, deletePost } = usePosts()
   const [newPost, setNewPost] = useState("")
   const [showComments, setShowComments] = useState<string | null>(null)
   const { user, isAuthenticated } = useAuth()
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const { toast } = useToast()
 
-  useEffect(() => {
-    fetchPosts()
-  }, [])
-
-  async function fetchPosts() {
-    try {
-      setIsLoading(true)
-      setError(null)
-
-      const { data, error } = await supabase
-        .schema('dallas')
-        .from("posts")
-        .select(`
-          id,
-          content,
-          created_at,
-          user_id,
-          user:user_id (
-            id,
-            did,
-            handle,
-            display_name,
-            avatar
-          )
-        `)
-        .order('created_at', { ascending: false })
-
-      if (error) throw error
-
-      setPosts(data || [])
-    } catch (error: any) {
-      console.error("Error fetching posts:", error)
-      setError("Failed to load posts. Please try again later.")
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
   const handleSubmitPost = async () => {
-    if (!isAuthenticated || !newPost.trim()) return
+    if (!isAuthenticated || !user?.id) return
 
     try {
-      // First, ensure the user profile exists
-      const { error: profileError } = await supabase.from("user_profiles").upsert({
-        did: user?.did,
-        handle: user?.handle || "anonymous",
-        avatar: user?.avatar,
+      // Generate a title from the first few words of the content
+      const title = newPost.split(' ').slice(0, 5).join(' ') + '...'
+
+      // Validate the input data
+      const validatedData = postSchema.parse({
+        content: newPost.trim(),
+        title,
+        user_id: user.id
       })
 
-      if (profileError) throw profileError
+      const result = await createPost(validatedData)
 
-      // Then create the post
-      const { error: postError } = await supabase
-        .schema('dallas')
-        .from("posts")
-        .insert({
-          content: newPost,
-          user_id: user?.id
-        })
-
-      if (postError) throw postError
+      if (result instanceof Error) throw result
 
       setNewPost("")
       toast({
         title: "Success",
-        description: "Your post has been published.",
+        description: "Your post has been published!",
       })
+    } catch (error) {
+      console.error("Error creating post:", error)
+      
+      // Handle Zod validation errors
+      if (error instanceof z.ZodError) {
+        const errorMessages = error.errors.map(err => err.message).join(", ")
+        toast({
+          title: "Validation Error",
+          description: errorMessages,
+          variant: "destructive",
+        })
+        return
+      }
 
-      await fetchPosts() // Refresh the posts list
-    } catch (error: any) {
-      console.error("Error submitting post:", error)
       toast({
         title: "Error",
-        description: "Failed to publish your post. Please try again.",
+        description: "Failed to create post. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleDeletePost = async (postId: string) => {
+    try {
+      const result = await deletePost(postId)
+      if (result instanceof Error) throw result
+      
+      toast({
+        title: "Success",
+        description: "Post deleted successfully",
+      })
+    } catch (error) {
+      console.error("Error deleting post:", error)
+      toast({
+        title: "Error",
+        description: "Failed to delete post. Please try again.",
         variant: "destructive",
       })
     }
   }
 
   const handleShare = async (post: Post) => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: "Discussion Post",
-          text: post.content,
-          url: window.location.href,
-        })
-      } catch (error) {
-        console.error("Error sharing:", error)
-      }
-    } else {
-      navigator.clipboard.writeText(post.content)
-      toast({
-        title: "Copied to clipboard",
-        description: "The post content has been copied to your clipboard.",
+    try {
+      await navigator.share({
+        title: `Post by ${user?.handle || 'Anonymous'}`,
+        text: post.content,
+        url: `${window.location.origin}/posts/${post.id}`
       })
+    } catch (error) {
+      // Only show error if it's not a user cancellation
+      if ((error as Error).name !== 'AbortError') {
+        toast({
+          title: "Error",
+          description: "Failed to share the post. Try copying the link instead.",
+          variant: "destructive",
+        })
+      }
     }
   }
 
@@ -176,7 +158,7 @@ export function DiscussionFeed() {
             rows={3}
           />
           <div className="flex justify-end mt-2">
-            <Button onClick={handleSubmitPost} disabled={!isAuthenticated || !newPost.trim()}>
+            <Button onClick={handleSubmitPost} disabled={!isAuthenticated || !newPost.trim() || !user?.id}>
               Post
             </Button>
           </div>
@@ -185,7 +167,7 @@ export function DiscussionFeed() {
         {error ? (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
+            <AlertDescription>{error.message || 'An error occurred while loading posts'}</AlertDescription>
           </Alert>
         ) : posts.length === 0 ? (
           <div className="text-center text-muted-foreground py-8">
@@ -196,14 +178,16 @@ export function DiscussionFeed() {
             <div key={post.id} className="mb-6 border-b pb-4">
               <div className="flex items-start gap-4">
                 <Avatar className="h-10 w-10">
-                  <AvatarImage src={post.user?.avatar} />
-                  <AvatarFallback>{post.user?.handle?.[0]?.toUpperCase() || "?"}</AvatarFallback>
+                  <AvatarImage src={user?.avatar} />
+                  <AvatarFallback>{user?.handle?.[0]?.toUpperCase() || "?"}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1">
                   <div className="flex items-center justify-between">
-                    <span className="font-semibold">{post.user?.handle || "Anonymous"}</span>
+                    <span className="font-semibold">{user?.handle || "Anonymous"}</span>
                     <span className="text-sm text-muted-foreground">
-                      {new Date(post.created_at).toLocaleDateString()}
+                      {post.created_at 
+                        ? new Date(post.created_at).toLocaleDateString()
+                        : 'Date not available'}
                     </span>
                   </div>
                   <div className="mt-2 prose dark:prose-invert">
@@ -227,6 +211,14 @@ export function DiscussionFeed() {
                     >
                       <Share2 className="h-4 w-4" />
                       Share
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDeletePost(post.id)}
+                      className="flex items-center gap-2"
+                    >
+                      Delete
                     </Button>
                   </div>
                 </div>

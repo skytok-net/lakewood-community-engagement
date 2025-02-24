@@ -1,60 +1,69 @@
-# Use Node.js LTS (Hydrogen) as the base image
+# Stage 1: Base image
 FROM node:20-alpine AS base
 
-# Install pnpm
-ENV PNPM_HOME="/pnpm"
-ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable
+# Set PNPM_HOME and update PATH
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME/bin:$PATH
 
-# Install dependencies only when needed
-FROM base AS deps
+# Install pnpm
+RUN npm install -g pnpm@latest
+
+# Set the working directory inside the container
 WORKDIR /app
 
-# Files needed for installing dependencies
-COPY package.json pnpm-lock.yaml* ./
+# Stage 2: Dependencies
+FROM base AS deps
+
+# Copy package files
+COPY package.json pnpm-lock.yaml ./
 
 # Install dependencies
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 
-# Rebuild the source code only when needed
-FROM base AS builder
-WORKDIR /app
+# Generate required UI components
+RUN pnpm dlx shadcn@latest add skeleton avatar button textarea
 
+# Stage 3: Build the application
+FROM base AS builder
+
+# Copy files needed for build
+WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Disable Next.js telemetry during the build
-ENV NEXT_TELEMETRY_DISABLED 1
+# Set Next.js telemetry to disabled
+ENV NEXT_TELEMETRY_DISABLED=1
 
-# Build the application
+# Build the Next.js application
 RUN pnpm build
 
-# Production image, copy all the files and run next
+# Stage 4: Production image
 FROM base AS runner
-WORKDIR /app
 
-ENV NODE_ENV production
-ENV NEXT_TELEMETRY_DISABLED 1
+# Set environment variables
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 
 # Create a non-root user
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+RUN addgroup -S nextjs && adduser -S nextjs -G nextjs
 
-# Copy built files
-COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# Set the working directory
+WORKDIR /app
 
-# Set the correct permissions
-RUN chown -R nextjs:nodejs /app
+# Copy necessary files from the builder stage
+COPY --from=builder --chown=nextjs:nextjs /app/public ./public
+COPY --from=builder --chown=nextjs:nextjs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
 
 # Switch to non-root user
 USER nextjs
 
-# Expose the port
+# Expose the port the app will run on
 EXPOSE 3000
 
-ENV PORT 3000
-ENV HOSTNAME "0.0.0.0"
+# Set hostname for the container
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
 
+# Start the application
 CMD ["node", "server.js"]
