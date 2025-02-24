@@ -1,62 +1,56 @@
-# Stage 1: Base image
-FROM node:20-alpine AS base
+FROM oven/bun:1 AS base
 
-# Set PNPM_HOME and update PATH
-ENV PNPM_HOME=/pnpm
-ENV PATH=$PNPM_HOME/bin:$PATH
+WORKDIR /run
 
-# Install pnpm
-RUN npm install -g pnpm@latest
+# First copy only config files
+COPY tsconfig.json next.config.mjs .bunfig.toml ./
 
-# Set the working directory inside the container
-WORKDIR /app
+# Then copy package files
+COPY package.json bun.lock ./
 
-# Stage 2: Dependencies
-FROM base AS deps
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile
 
-# Copy package files
-COPY package.json pnpm-lock.yaml ./
+# Copy remaining files with proper ownership
+COPY --chown=1000:1000 . .
 
-# Install dependencies
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+# Verify file structure
+RUN ls -lR components/ && ls -l .bunfig.toml
 
-# Generate required UI components
-RUN pnpm dlx shadcn@latest add skeleton avatar button textarea
+ARG FIREWORKS_API_KEY
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-# Stage 3: Build the application
-FROM base AS builder
-
-# Copy files needed for build
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-
-# Set Next.js telemetry to disabled
 ENV NEXT_TELEMETRY_DISABLED=1
+RUN bun run build
 
-# Build the Next.js application
-RUN pnpm build
 
-# Stage 4: Production image
-FROM base AS runner
+# Stage 2: Production image
+FROM oven/bun:1-slim AS runner
 
 # Set environment variables
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-
-# Create a non-root user
-RUN addgroup -S nextjs && adduser -S nextjs -G nextjs
+ENV FIREWORKS_API_KEY=${FIREWORKS_API_KEY}
+ENV NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
 
 # Set the working directory
-WORKDIR /app
+WORKDIR /run
 
 # Copy necessary files from the builder stage
-COPY --from=builder --chown=nextjs:nextjs /app/public ./public
-COPY --from=builder --chown=nextjs:nextjs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
+COPY --from=base /run/public ./public
+COPY --from=base /run/.next/standalone ./
+COPY --from=base /run/.next/static ./.next/static
+
+# Create a non-root user
+RUN adduser --system --group bun
+
+# Set ownership
+RUN chown -R bun:bun .
 
 # Switch to non-root user
-USER nextjs
+USER bun
 
 # Expose the port the app will run on
 EXPOSE 3000
@@ -65,5 +59,5 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Start the application
-CMD ["node", "server.js"]
+# Start the application using Bun
+CMD ["bun", "server.js"]

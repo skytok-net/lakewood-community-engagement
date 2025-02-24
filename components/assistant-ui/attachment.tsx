@@ -1,12 +1,13 @@
 "use client";
 
-import { PropsWithChildren, useEffect, useState, type FC } from "react";
+import { useEffect, useState, type FC, type PropsWithChildren } from "react";
 import { CircleXIcon, FileIcon, PaperclipIcon } from "lucide-react";
 import {
   AttachmentPrimitive,
   ComposerPrimitive,
   MessagePrimitive,
   useAttachment,
+  type ImageContentPart,
 } from "@assistant-ui/react";
 import { useShallow } from "zustand/shallow";
 import {
@@ -51,9 +52,9 @@ const useAttachmentSrc = () => {
     useShallow((a): { file?: File; src?: string } => {
       if (a.type !== "image") return {};
       if (a.file) return { file: a.file };
-      const src = a.content?.filter((c) => c.type === "image")[0]?.image;
-      if (!src) return {};
-      return { src };
+      const imagePart = a.content?.find((c): c is ImageContentPart => c.type === "image");
+      if (!imagePart?.image) return {};
+      return { src: imagePart.image };
     }),
   );
 

@@ -27,19 +27,20 @@ const nextConfig = {
     ],
   },
   output: 'standalone',
-  experimental: {
-    webpackBuildWorker: false, // Disable experimental features that might cause issues
-    optimizeCss: true,
-    optimizePackageImports: [
-      '@radix-ui/react-icons',
-      '@radix-ui/react-alert-dialog',
-      '@radix-ui/react-dialog',
-      '@radix-ui/react-dropdown-menu',
-      '@radix-ui/react-popover',
-      '@radix-ui/react-select',
-      '@radix-ui/react-tabs',
-    ],
-  },
+    experimental: {
+      webpackBuildWorker: false, // Disable experimental features that might cause issues
+      optimizeCss: true,
+      optimizePackageImports: [
+        '@radix-ui/react-icons',
+        '@radix-ui/react-alert-dialog',
+        '@radix-ui/react-dialog',
+        '@radix-ui/react-dropdown-menu',
+        '@radix-ui/react-popover',
+        '@radix-ui/react-select',
+        '@radix-ui/react-tabs',
+        'bun-types',
+      ]
+    },
   productionBrowserSourceMaps: false,
   reactStrictMode: true,
   poweredByHeader: false,

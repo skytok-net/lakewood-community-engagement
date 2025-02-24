@@ -63,3 +63,10 @@ LICENSE
 .editorconfig
 jest.config.*
 tsconfig.json
+
+!components/
+!.bunfig.toml
+!tsconfig.json
+!next.config.mjs
+!package.json
+!bun.lock

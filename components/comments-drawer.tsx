@@ -11,16 +11,17 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabaseClient"
 
-interface Comment {
+type Comment = {
   id: string
   content: string
-  created_at: string
-  user_did: string
+  created_at: string | null
+  user_id: string | null
   parent_id: string | null
   user: {
+    id: string
     handle: string
-    avatar?: string
-  }
+    avatar: string | null
+  } | null
   replies?: Comment[]
   reactions: {
     type: string
@@ -52,45 +53,73 @@ export function CommentsDrawer({ targetId, targetType, isOpen, onClose }: Commen
     try {
       setIsLoading(true)
       const { data, error } = await supabase
-        .from(targetType === "news_item" ? "news_item_comments" : "post_comments")
+        .schema('dallas')
+        .from('comments')
         .select(`
-          comment:comments (
+          id,
+          content,
+          created_at,
+          user_id,
+          parent_id,
+          user:users!user_id (
             id,
-            content,
-            created_at,
-            user_did,
-            parent_id,
-            user:user_did (
-              handle,
-              avatar
-            ),
-            reactions (
-              type,
-              count:reactions_count
-            )
+            handle,
+            avatar
+          ),
+          reactions:comment_reactions (
+            type,
+            count:count
           )
         `)
-        .eq(targetType === "news_item" ? "news_item_id" : "post_id", targetId)
-        .order("created_at", { foreignTable: "comments", ascending: false })
+        .eq('target_id', targetId)
+        .eq('target_type', targetType)
+        .order('created_at', { ascending: false })
 
       if (error) throw error
 
-      const commentsData = data.map((item) => item.comment)
+      // Transform the data to match our Comment type
+      const commentsData = data.map((item): Comment => {
+        // Ensure reactions is always an array of the correct shape
+        const reactions = Array.isArray(item.reactions) 
+          ? item.reactions.map(r => ({
+              type: String(r.type),
+              count: Number(r.count) || 0
+            }))
+          : [];
+
+        // Ensure user object is properly typed
+        const user = item.user ? {
+          id: item.user.id,
+          handle: item.user.handle,
+          avatar: item.user.avatar || null
+        } : null;
+
+        return {
+          id: item.id,
+          content: item.content,
+          created_at: item.created_at || null,
+          user_id: item.user_id || null,
+          parent_id: item.parent_id || null,
+          user,
+          reactions
+        };
+      });
 
       // Organize comments into threads
-      const threaded = commentsData.reduce((acc: { [key: string]: Comment }, comment: Comment) => {
+      const threaded = commentsData.reduce<{ [key: string]: Comment }>((acc, comment) => {
         if (!comment.parent_id) {
-          comment.replies = []
-          acc[comment.id] = comment
+          // This is a root comment
+          acc[comment.id] = { ...comment, replies: [] };
         } else {
-          const parent = acc[comment.parent_id]
+          // This is a reply
+          const parent = acc[comment.parent_id];
           if (parent) {
-            parent.replies = parent.replies || []
-            parent.replies.push(comment)
+            parent.replies = parent.replies || [];
+            parent.replies.push(comment);
           }
         }
-        return acc
-      }, {})
+        return acc;
+      }, {});
 
       setComments(Object.values(threaded))
     } catch (error) {
@@ -100,30 +129,26 @@ export function CommentsDrawer({ targetId, targetType, isOpen, onClose }: Commen
     }
   }
 
-  const handleSubmitComment = async () => {
-    if (!isAuthenticated || !newComment.trim()) return
+  const handleSubmitComment = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newComment.trim() || !isAuthenticated || !user?.id || !user?.did) return
 
     try {
       const { data: commentData, error: commentError } = await supabase
-        .from("comments")
+        .schema('dallas')
+        .from('comments')
         .insert({
-          content: newComment,
-          user_did: user?.did,
+          content: newComment,  
+          user_id: user.id,
+          user_did: user.did,
           parent_id: replyTo,
+          target_id: targetId,
+          target_type: targetType,
         })
         .select()
         .single()
 
       if (commentError) throw commentError
-
-      const { error: junctionError } = await supabase
-        .from(targetType === "news_item" ? "news_item_comments" : "post_comments")
-        .insert({
-          [targetType === "news_item" ? "news_item_id" : "post_id"]: targetId,
-          comment_id: commentData.id,
-        })
-
-      if (junctionError) throw junctionError
 
       setNewComment("")
       setReplyTo(null)
@@ -134,14 +159,17 @@ export function CommentsDrawer({ targetId, targetType, isOpen, onClose }: Commen
   }
 
   const handleReaction = async (commentId: string, reactionType: string) => {
-    if (!isAuthenticated) return
+    if (!isAuthenticated || !user?.id || !user?.did) return
 
     try {
-      await supabase.rpc("add_comment_reaction", {
-        p_comment_id: commentId,
-        p_user_did: user?.did,
-        p_reaction_type: reactionType,
-      })
+      await supabase
+        .schema('dallas')
+        .rpc("add_comment_reaction", {
+          p_comment_id: commentId,
+          p_user_id: user.id,
+          p_user_did: user.did,
+          p_reaction_type: reactionType,
+        })
       fetchComments()
     } catch (error) {
       console.error("Error adding reaction:", error)
@@ -152,14 +180,16 @@ export function CommentsDrawer({ targetId, targetType, isOpen, onClose }: Commen
     <div className="space-y-4">
       <div className="flex gap-4">
         <Avatar className="h-8 w-8">
-          <AvatarImage src={comment.user?.avatar} />
-          <AvatarFallback>{comment.user?.handle?.[0]?.toUpperCase()}</AvatarFallback>
+          <AvatarImage src={comment.user?.avatar || undefined} />
+          <AvatarFallback>{comment.user?.handle?.[0]?.toUpperCase() || '?'}</AvatarFallback>
         </Avatar>
         <div className="flex-1 space-y-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="font-semibold">{comment.user?.handle}</span>
-              <span className="text-xs text-muted-foreground">{new Date(comment.created_at).toLocaleDateString()}</span>
+              <span className="font-semibold">{comment.user?.handle || 'Anonymous'}</span>
+              <span className="text-xs text-muted-foreground">
+                {comment.created_at ? new Date(comment.created_at).toLocaleDateString() : 'Unknown date'}
+              </span>
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -169,7 +199,7 @@ export function CommentsDrawer({ targetId, targetType, isOpen, onClose }: Commen
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem>Report</DropdownMenuItem>
-                {user?.did === comment.user_did && (
+                {user?.id === comment.user_id && (
                   <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
                 )}
               </DropdownMenuContent>
@@ -259,4 +289,3 @@ export function CommentsDrawer({ targetId, targetType, isOpen, onClose }: Commen
     </AnimatePresence>
   )
 }
-

@@ -1,0 +1,9 @@
+[install]
+alias = {
+  "@/components" = "./components",
+  "@/lib" = "./lib",
+  "@/stores" = "./stores",
+  "@/hooks" = "./hooks",
+  "@/utils" = "./utils",
+  "@/types" = "./types"
+}
