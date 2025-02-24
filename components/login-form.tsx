@@ -1,8 +1,9 @@
 "use client"
 
 import type React from "react"
-
-import { useState } from "react"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { useForm } from "react-hook-form"
+import * as z from "zod"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -11,24 +12,50 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
+import type { User } from "@/types"
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form"
+
+const loginSchema = z.object({
+  identifier: z.string().min(1, "Handle or email is required"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  service: z.string().url("Invalid service URL").default("https://bsky.social"),
+})
+
+type LoginFormValues = z.infer<typeof loginSchema>
 
 export function LoginForm() {
-  const [handle, setHandle] = useState("")
-  const [password, setPassword] = useState("")
-  const [pdsServer, setPdsServer] = useState("https://bsky.social")
   const router = useRouter()
   const { toast } = useToast()
   const { login } = useAuth()
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const form = useForm<LoginFormValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      identifier: "",
+      password: "",
+      service: "https://bsky.social",
+    },
+  })
+
+  const onSubmit = async (data: LoginFormValues) => {
     try {
-      await login(handle, password, pdsServer)
+      const result = await login(data.identifier, data.password, data.service)
+      if (result instanceof Error) {
+        throw result
+      }
       toast({
         title: "Login successful",
         description: "You have been logged in successfully.",
       })
-      router.push("/") // Redirect to home page after successful login
+      router.push("/")
     } catch (error) {
       toast({
         title: "Login failed",
@@ -39,44 +66,70 @@ export function LoginForm() {
   }
 
   return (
-    <Card className="w-[350px]">
+    <Card className="w-[400px]">
       <CardHeader>
         <CardTitle>Login</CardTitle>
         <CardDescription>Enter your details to login to your account.</CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit}>
-          <div className="grid w-full items-center gap-4">
-            <div className="flex flex-col space-y-1.5">
-              <Label htmlFor="handle">Handle</Label>
-              <Input
-                id="handle"
-                placeholder="Your AT Protocol handle"
-                value={handle}
-                onChange={(e) => setHandle(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col space-y-1.5">
-              <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-            </div>
-            <div className="flex flex-col space-y-1.5">
-              <Label htmlFor="pdsServer">PDS Server</Label>
-              <Input
-                id="pdsServer"
-                placeholder="https://bsky.social"
-                value={pdsServer}
-                onChange={(e) => setPdsServer(e.target.value)}
-              />
-            </div>
-          </div>
-          <Button className="w-full mt-4" type="submit">
-            Login
-          </Button>
-        </form>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField
+              control={form.control}
+              name="identifier"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Handle or Email</FormLabel>
+                  <FormControl>
+                    <Input placeholder="e.g. username.bsky.social or your@email.com" {...field} />
+                  </FormControl>
+                  <FormDescription>
+                    Enter your handle (e.g. username.bsky.social) or email address
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="password"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Password</FormLabel>
+                  <FormControl>
+                    <Input type="password" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="service"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>PDS Server</FormLabel>
+                  <FormControl>
+                    <Input {...field} />
+                  </FormControl>
+                  <FormDescription>
+                    The URL of your PDS server (default: bsky.social)
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <Button type="submit" className="w-full">
+              Login
+            </Button>
+          </form>
+        </Form>
       </CardContent>
-      <CardFooter>
-        <p className="text-sm text-center w-full">
+      <CardFooter className="flex flex-col space-y-2">
+        <p className="text-sm text-muted-foreground text-center">
           Don&apos;t have an account?{" "}
           <Link href="/register" className="text-primary hover:underline">
             Register
@@ -86,4 +139,3 @@ export function LoginForm() {
     </Card>
   )
 }
-

@@ -6,12 +6,12 @@ import { AtpAgent, type AtpSessionData, type AtpSessionEvent } from "@atproto/ap
 import type { AuthState, User } from "@/types"
 import type { ProfileViewDetailed } from "@atproto/api/dist/client/types/app/bsky/actor/defs"
 import { supabase } from "@/lib/supabaseClient"
-import { randomUUID } from "crypto"
+import { v4 as uuid } from "uuid"
 import type { UserInsert } from "@/types"
 
 interface AuthStore extends AuthState {
   agent: AtpAgent | null
-  login: (identifier: string, email: string, password: string, service: string) => Promise<User | Error>
+  login: (identifier: string, password: string, service: string) => Promise<User | Error>
   logout: () => Promise<void>
   register: (name: string, handle: string, email: string, password: string, service: string) => Promise<User | Error>
   setUser: (user: User | null) => void
@@ -24,10 +24,9 @@ interface AuthStore extends AuthState {
 }
 
 const createAgent = (service: string, set: (state: Partial<AuthStore>) => void) => {
+
   // Ensure service URL is properly formatted
-  const serviceUrl = service.startsWith('http://') || service.startsWith('https://')
-    ? service
-    : `https://${service}`
+  const serviceUrl = new URL(service)
 
   return new AtpAgent({
     service: serviceUrl,
@@ -140,16 +139,19 @@ export const useAuthStore = create<AuthStore>()(
         }
       },
 
-      login: async (identifier: string, email: string, password: string, service: string) : Promise<User | Error> =>  {
+      login: async (identifier: string, password: string, service: string) : Promise<User | Error> =>  {
         try {
           set({ isLoading: true, error: null })
           
           const agent = createAgent(service, set)
-          const res = await agent.login({ identifier, password })
+          const res = await agent.login({ 
+            identifier, 
+            password 
+          })
 
           if (!res.success || !res.data) throw new Error("Login failed")
 
-          const profileRes = await agent.getProfile()
+          const profileRes = await agent.getProfile({ actor: res.data.did })
 
           if (!profileRes.success || !profileRes.data) throw new Error("Failed to get profile")
 
@@ -159,7 +161,7 @@ export const useAuthStore = create<AuthStore>()(
           .schema('dallas') 
             .from("users")
             .select()
-            .eq("email", email)
+            .eq("did", res.data.did!)
             .single()
           
           if (fetchError && fetchError.code !== "PGRST116") {
@@ -168,12 +170,12 @@ export const useAuthStore = create<AuthStore>()(
           
           if (!existingUser) {
             const newUser: UserInsert = {
-              id: randomUUID(),
+              id: uuid(),
               did: res.data.did,
               service,
               avatar: profileRes.data.avatar,
               display_name: profileRes.data.displayName || identifier,
-              email,
+              email: res.data.email!,
               handle: identifier,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
@@ -222,7 +224,7 @@ export const useAuthStore = create<AuthStore>()(
           return userReturned
           
         } catch (error) {
-          console.error("Login failed:", error)
+          console.log("error on login: " + error)
           set({ 
             error: error as Error, 
             isLoading: false, 
@@ -232,7 +234,7 @@ export const useAuthStore = create<AuthStore>()(
             session: null,
             profile: null
           })
-          return error as Error
+          return Error("Failed to login: " + error)
         }
       },
 
@@ -245,11 +247,12 @@ export const useAuthStore = create<AuthStore>()(
 
           if (!res.success) throw new Error("Failed to create account")
           
-          const profileRes = await agent.getProfile()
+          const profileRes = await agent.getProfile({ actor: res.data.did })
+
           if (!profileRes.success) throw new Error("Failed to get profile")
           
           const newUser: UserInsert = {
-            id: randomUUID(),
+            id: uuid(),
               did: res.data.did,
               service,
               avatar: profileRes.data.avatar,
@@ -278,7 +281,7 @@ export const useAuthStore = create<AuthStore>()(
           return userReturned
           
         } catch (error) {
-          console.error("Registration failed:", error)
+          console.log("error on register: " + error)
           set({ 
             error: error as Error, 
             isLoading: false, 
@@ -288,7 +291,7 @@ export const useAuthStore = create<AuthStore>()(
             session: null,
             profile: null
           })
-          return error as Error
+          return Error("Failed to register: " + error)
         }
       },
 
