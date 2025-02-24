@@ -24,8 +24,13 @@ interface AuthStore extends AuthState {
 }
 
 const createAgent = (service: string, set: (state: Partial<AuthStore>) => void) => {
+  // Ensure service URL is properly formatted
+  const serviceUrl = service.startsWith('http://') || service.startsWith('https://')
+    ? service
+    : `https://${service}`
+
   return new AtpAgent({
-    service,
+    service: serviceUrl,
     persistSession: (event: AtpSessionEvent, session: AtpSessionData | undefined) => {
       if (typeof window === "undefined") return
       if (event === "create" || event === "update") {
